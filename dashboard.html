@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tableau de Bord - Hubert de la Campagne</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/esm/index.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <style>
+        :root {
+            --primary-color: #007bff; /* Blue */
+            --secondary-color: #1d3557; /* Dark Blue */
+            --accent-color-1: #457b9d; /* Medium Blue */
+            --accent-color-2: #a8dadc; /* Light Blue */
+            --accent-color-3: #e63946; /* Red */
+            --background-color: #f8f9fa;
+            --widget-background-color: #FFFFFF;
+            --text-color: #212529;
+            --text-light: #FFFFFF;
+        }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            line-height: 1.6;
+            color: var(--text-color);
+            background-color: var(--background-color);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .dashboard-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+        }
+
+        .widget {
+            background-color: var(--widget-background-color);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+
+        .widget h2 {
+            margin-top: 0;
+            font-size: 1.2rem;
+            color: var(--secondary-color);
+        }
+
+        .kpi-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 20px;
+            grid-column: 1 / -1;
+        }
+
+        .kpi {
+            background-color: var(--primary-color);
+            color: var(--text-light);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            transition: transform 0.2s;
+        }
+        .kpi:hover {
+            transform: translateY(-5px);
+        }
+
+        .kpi .value {
+            font-size: 2rem;
+            font-weight: 700;
+        }
+
+        .kpi .label {
+            font-size: 1rem;
+        }
+        
+        .full-width {
+            grid-column: 1 / -1;
+        }
+
+        .date-filter {
+            grid-column: 1 / -1;
+            background-color: var(--widget-background-color);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .date-filter label {
+            font-weight: 600;
+        }
+
+        .date-filter input {
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            font-family: 'Poppins', sans-serif;
+        }
+
+    </style>
+</head>
+<body>
+
+    <h1 style="text-align: center; color: var(--secondary-color);">Tableau de Bord - Hubert de la Campagne</h1>
+
+    <div class="dashboard-container">
+
+        <div class="date-filter">
+            <label for="start-date">Date de début:</label>
+            <input type="date" id="start-date">
+            <label for="end-date">Date de fin:</label>
+            <input type="date" id="end-date">
+        </div>
+
+        <div class="kpi-container">
+            <div class="kpi" style="background-color: var(--accent-color-1);">
+                <div class="value" id="total-revenue"></div>
+                <div class="label">Chiffre d'affaires</div>
+            </div>
+            <div class="kpi" style="background-color: var(--accent-color-2); color: var(--secondary-color);">
+                <div class="value" id="total-orders"></div>
+                <div class="label">Commandes</div>
+            </div>
+            <div class="kpi" style="background-color: var(--accent-color-1);">
+                <div class="value" id="avg-order-value"></div>
+                <div class="label">Panier moyen</div>
+            </div>
+            <div class="kpi" style="background-color: var(--accent-color-2); color: var(--secondary-color);">
+                <div class="value" id="unique-customers"></div>
+                <div class="label">Clients uniques</div>
+            </div>
+        </div>
+
+        <div class="widget">
+            <h2>Top 5 des plats les plus vendus</h2>
+            <canvas id="top-dishes-chart"></canvas>
+        </div>
+
+        <div class="widget">
+            <h2>Répartition du CA par restaurant</h2>
+            <canvas id="revenue-by-restaurant-chart"></canvas>
+        </div>
+        
+        <div class="widget">
+            <h2>Évolution des commandes</h2>
+            <canvas id="orders-over-time-chart"></canvas>
+        </div>
+        
+        <div class="widget full-width">
+            <h2>Carte des commandes par village</h2>
+            <div id="map" style="height: 400px; border-radius: 10px;"></div>
+        </div>
+
+    </div>
+
+    <script type="module">
+        import { getWeek, getMonth, getYear, format, differenceInDays } from 'https://cdn.jsdelivr.net/npm/date-fns@2.29.3/esm/index.js';
+
+        // --- DATA GENERATION ---
+        const villages = ['Toucy', 'Pourrain', 'Diges', 'Parly', 'Merry-la-Vallée', 'Dracy'];
+        const villageCoordinates = {
+            'Toucy': { lat: 47.7333, lon: 3.2833 },
+            'Pourrain': { lat: 47.8167, lon: 3.4167 },
+            'Diges': { lat: 47.8667, lon: 3.4333 },
+            'Parly': { lat: 47.7667, lon: 3.3500 },
+            'Merry-la-Vallée': { lat: 47.6667, lon: 3.4167 },
+            'Dracy': { lat: 47.7000, lon: 3.2167 }
+        };
+        const restaurants = {
+            'Campagne Burgers': {
+                dishes: ['Le Classique', 'Le Campagnard', 'Le Poulet Croustillant'],
+                prices: [12.50, 14.00, 13.00]
+            },
+            'La Petite Pizza': {
+                dishes: ['Margherita', '4 Fromages', 'Reine'],
+                prices: [11.00, 14.00, 12.00]
+            },
+            'Bouffe Ta Salade': {
+                dishes: ['La César', 'La Niçoise', 'La Végétarienne'],
+                prices: [13.50, 14.50, 12.00]
+            }
+        };
+
+        function generateDummyData(numOrders) {
+            const data = [];
+            const startDate = new Date('2024-08-01');
+            for (let i = 0; i < numOrders; i++) {
+                const restaurantName = Object.keys(restaurants)[Math.floor(Math.random() * Object.keys(restaurants).length)];
+                const restaurant = restaurants[restaurantName];
+                const dishIndex = Math.floor(Math.random() * restaurant.dishes.length);
+                const dish = restaurant.dishes[dishIndex];
+                const price = restaurant.prices[dishIndex];
+                const village = villages[Math.floor(Math.random() * villages.length)];
+                const date = new Date(startDate);
+                date.setDate(startDate.getDate() + Math.floor(Math.random() * 365));
+
+                data.push({ 
+                    order_id: i + 1, 
+                    village: village, 
+                    restaurant: restaurantName, 
+                    dish: dish, 
+                    price: price, 
+                    date: date.toISOString().split('T')[0] 
+                });
+            }
+            return data;
+        }
+
+        const dummyData = generateDummyData(500);
+
+        // --- CHART, MAP & KPI UPDATE LOGIC ---
+        const charts = {};
+        let map = null;
+        let markersLayer = null;
+        const colorPalette = ['#1d3557', '#457b9d', '#a8dadc', '#f1faee', '#e63946', '#fca311'];
+
+        function updateDashboard(filteredData) {
+            // KPIs
+            const totalRevenue = filteredData.reduce((sum, order) => sum + order.price, 0);
+            const totalOrders = filteredData.length;
+            const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+            const uniqueCustomers = new Set(filteredData.map(order => order.village)).size;
+
+            document.getElementById('total-revenue').innerText = `${totalRevenue.toFixed(2)}€`;
+            document.getElementById('total-orders').innerText = totalOrders;
+            document.getElementById('avg-order-value').innerText = `${avgOrderValue.toFixed(2)}€`;
+            document.getElementById('unique-customers').innerText = uniqueCustomers;
+
+            // Top 5 Dishes Chart
+            const dishCounts = filteredData.reduce((acc, order) => {
+                acc[order.dish] = (acc[order.dish] || 0) + 1;
+                return acc;
+            }, {});
+            const sortedDishes = Object.entries(dishCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+            
+            if (charts.topDishes) charts.topDishes.destroy();
+            charts.topDishes = new Chart(document.getElementById('top-dishes-chart'), {
+                type: 'bar',
+                data: {
+                    labels: sortedDishes.map(item => item[0]),
+                    datasets: [{
+                        label: 'Nombre de commandes',
+                        data: sortedDishes.map(item => item[1]),
+                        backgroundColor: colorPalette,
+                    }]
+                }
+            });
+
+            // Revenue by Restaurant Chart
+            const revenueByRestaurant = filteredData.reduce((acc, order) => {
+                acc[order.restaurant] = (acc[order.restaurant] || 0) + order.price;
+                return acc;
+            }, {});
+
+            if (charts.revenueByRestaurant) charts.revenueByRestaurant.destroy();
+            charts.revenueByRestaurant = new Chart(document.getElementById('revenue-by-restaurant-chart'), {
+                type: 'pie',
+                data: {
+                    labels: Object.keys(revenueByRestaurant),
+                    datasets: [{
+                        data: Object.values(revenueByRestaurant),
+                        backgroundColor: colorPalette
+                    }]
+                }
+            });
+
+            // Orders Over Time Chart
+            const dateRange = differenceInDays(new Date(endDateInput.value), new Date(startDateInput.value));
+            const groupBy = dateRange > 90 ? 'month' : 'week';
+
+            const ordersByTime = filteredData.reduce((acc, order) => {
+                const date = new Date(order.date);
+                let key;
+                if (groupBy === 'month') {
+                    key = format(date, 'yyyy-MM');
+                } else {
+                    const week = getWeek(date, { weekStartsOn: 1 });
+                    const year = getYear(date);
+                    key = `${year}-W${String(week).padStart(2, '0')}`;
+                }
+                acc[key] = (acc[key] || 0) + 1;
+                return acc;
+            }, {});
+            const sortedTimeKeys = Object.keys(ordersByTime).sort();
+
+            if (charts.ordersOverTime) charts.ordersOverTime.destroy();
+            charts.ordersOverTime = new Chart(document.getElementById('orders-over-time-chart'), {
+                type: 'line',
+                data: {
+                    labels: sortedTimeKeys,
+                    datasets: [{
+                        label: 'Nombre de commandes',
+                        data: sortedTimeKeys.map(key => ordersByTime[key]),
+                        borderColor: '#e63946',
+                        backgroundColor: 'rgba(230, 57, 70, 0.1)',
+                        fill: true,
+                        tension: 0.1
+                    }]
+                }
+            });
+
+            // Map
+            const ordersByVillage = filteredData.reduce((acc, order) => {
+                acc[order.village] = (acc[order.village] || 0) + 1;
+                return acc;
+            }, {});
+
+            if (markersLayer) {
+                markersLayer.clearLayers();
+            }
+
+            for (const village in ordersByVillage) {
+                if (villageCoordinates[village]) {
+                    const coords = villageCoordinates[village];
+                    const count = ordersByVillage[village];
+                    const marker = L.circle([coords.lat, coords.lon], {
+                        color: '#e63946',
+                        fillColor: '#e63946',
+                        fillOpacity: 0.5,
+                        radius: Math.sqrt(count) * 500 // Scale radius based on order count
+                    }).addTo(markersLayer);
+                    marker.bindPopup(`<b>${village}</b><br>${count} commandes`);
+                }
+            }
+        }
+
+        // --- INITIALIZATION & EVENT LISTENERS ---
+        function initMap() {
+            map = L.map('map').setView([47.75, 3.35], 10);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            }).addTo(map);
+            markersLayer = L.layerGroup().addTo(map);
+        }
+
+        const startDateInput = document.getElementById('start-date');
+        const endDateInput = document.getElementById('end-date');
+
+        function filterDataByDate() {
+            const startDate = startDateInput.value;
+            const endDate = endDateInput.value;
+            const filteredData = dummyData.filter(order => {
+                const orderDate = new Date(order.date);
+                const start = startDate ? new Date(startDate) : null;
+                const end = endDate ? new Date(endDate) : null;
+                if (start && orderDate < start) return false;
+                if (end && orderDate > end) return false;
+                return true;
+            });
+            updateDashboard(filteredData);
+        }
+
+        startDateInput.addEventListener('change', filterDataByDate);
+        endDateInput.addEventListener('change', filterDataByDate);
+
+        // Initial load
+        initMap();
+        const oneYearAgo = new Date();
+        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+        startDateInput.value = oneYearAgo.toISOString().split('T')[0];
+        endDateInput.value = new Date().toISOString().split('T')[0];
+        filterDataByDate();
+
+    </script>
+
+</body>
+</html>
